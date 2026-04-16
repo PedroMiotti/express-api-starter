@@ -1,6 +1,6 @@
 # API Skeleton Architecture (infra + shared)
 
-This document describes a clean Node.js + Express API skeleton using the same pattern in this repository, focused on `src/infra` and `src/shared`.
+This document describes a clean Node.js + Express API skeleton using the same pattern in this repository, focused on `src/infra` and `src/shared` (behavior summaries + selective snippets; open source files for full listings).
 
 It intentionally excludes business modules. Modules are project-specific and should be implemented on top of this skeleton.
 
@@ -19,8 +19,9 @@ src/
 ├── infra/
 │   ├── config/
 │   ├── database/
-│   ├── middleware/
+│   ├── middleware/      # auth, validation, handleError, logging (pino-http), …
 │   └── server/
+│       └── shutdown/    # graceful shutdown orchestration
 ├── modules/             # project-specific, excluded from this doc
 └── shared/
     ├── base/
@@ -48,8 +49,8 @@ flowchart TB
   end
   subgraph shared [shared]
     base[base/BaseController]
-    http[http/ResultTypedRequest]
-    err[error/ApplicationError]
+    http[http/Result+TypedRequest]
+    err[error/ApplicationError+RFC7807]
     log[logger]
     settings[settings/AppSettings]
   end
@@ -57,7 +58,7 @@ flowchart TB
     controllers[controllersArray]
   end
   indexTs --> server
-  indexTs --> controllers
+  server --> controllers
   server --> mw
   server --> base
   mw --> err
@@ -68,363 +69,89 @@ flowchart TB
 
 ## Runtime Flow
 
-- `src/index.ts` bootstraps monitoring (optional), alias support, and app startup.
-- `src/infra/server/App.ts` initializes settings, middleware, routes, and global error handler.
-- Controllers (from `src/modules/index.ts`) are mounted under `AppSettings.ServerRoot`.
-- Input middleware (`validate`, `TokenClaims`) runs before handlers.
-- Handlers return `Result<T>`, then `BaseController.handleResult` standardizes responses.
-- Unhandled errors go through `src/infra/middleware/handleError/index.ts`.
+- `src/index.ts` bootstraps dotenv, optional New Relic in production, `App` construction, HTTP `server` handle, and **graceful shutdown** (`ShutdownOrchestrator` on `SIGTERM` / `SIGINT`, plus fatal hooks).
+- `module-alias/register` loads from compiled output only when running under `build/` (see source).
+- `src/infra/server/App.ts` initializes settings, middleware stack, controllers, **404 → ApplicationError**, then global error handler.
+- Middleware order (high level): `helmet` → **`pino-http` request logger** (`requestLogger`) → JSON body → **CORS** (allowed origins from `AppSettings.ServerOrigins`).
+- Controllers (from `src/modules/index.ts`) are mounted under `AppSettings.ServerRoot` (e.g. `/api`).
+- Input middleware (`validate`, `TokenClaims`) runs before handlers where configured.
+- Success path: handlers return `Result<T>`; `BaseController.handleResult` sends **JSON** `result.toResultDto()`.
+- Failure path: `next(error)` → `handleError` returns **`application/problem+json`** (RFC 7807-style body), not `Result`.
+- Operational docs: [ERROR_HANDLING_GUIDE.md](../ERROR_HANDLING_GUIDE.md) at repo root.
 
 ## Modules Boundary (excluded)
 
 `src/modules/index.ts` exports `controllers: BaseController[]`.  
 Feature modules are not part of this skeleton doc by design.
 
-## Config Callout (minimal vs product-specific)
+## Config callout
 
-Current config/settings include product-specific keys (Azure storage, Redis, internal services URLs, encryption, monitoring).
+This template’s **checked-in** config is intentionally small: `Environment`, `server` (`Root`, `Host`, `Port`, `Origins`), and `monitoring` flags. See `src/infra/config/index.ts` and `src/shared/settings/AppSettings.ts`.
 
-For a clean new API:
-
-- Keep minimum: `Environment`, `server.Host`, `server.Port`, `server.Root`.
-- Keep `AppSettings.init(config)` pattern.
-- Remove non-needed keys from both `src/infra/config/index.ts` and `src/shared/settings/AppSettings.ts`.
-- Add only keys required by your new providers/services.
+When you grow the product, add keys there and extend `initAppSettings` — do not scatter `process.env` reads across modules.
 
 ---
 
-## Base File Code - `src/index.ts`
+## Base file reference — `src/index.ts` + `src/infra`
 
-### `src/index.ts`
+Source of truth is always the repo; below is a **behavior summary** plus small excerpts so this doc does not drift again.
 
-```typescript
-if (process.env.IS_MONITORING_ENABLED === 'true' && process.env.ENVIRONMENT === 'production') {
-  require('newrelic');
-}
+### `src/index.ts` (bootstrap + shutdown)
 
-import 'module-alias/register';
-
-import App from '@/infra/server/App';
-import { controllers } from './modules';
-
-const app = new App(controllers);
-
-app.start();
-```
-
----
-
-## Base File Code - `src/infra`
+- `dotenv.config()` at top.
+- Optional `newrelic` when `IS_MONITORING_ENABLED` + production.
+- `module-alias/register` only when `__filename` contains `build/` (compiled runtime).
+- `const server = app.start()` then `ShutdownOrchestrator` + process signal / fatal handlers.
 
 ### `src/infra/config/index.ts`
 
-```typescript
-import * as dotenv from 'dotenv';
-
-dotenv.config();
-
-const dev = 'development';
-
-export default {
-  Environment: process.env.ENVIRONMENT || dev,
-  server: {
-    Root: process.env.SERVER_ROOT || '/api',
-    Host: process.env.SERVER_HOST || 'localhost',
-    Port: process.env.PORT || 5003,
-    Origins: process.env.ORIGINS || 'http://localhost:3000,http://localhost:3001,http://localhost:3002',
-  },
-  params: {
-    envs: {
-      dev: 'development',
-      staging: 'staging',
-      production: 'production',
-    },
-    storage: {
-      azure: {
-        ConnectionString: process.env.AZURE_STORAGE_CONNSTR,
-        Url: process.env.AZURE_STORAGE_URL,
-      },
-    },
-    services: {
-      NotificationApiUrl: process.env.NOTIFICATION_API_URL,
-      IntegrationApiUrl: process.env.INTEGRATION_API_URL,
-      IdentityApiUrl: process.env.IDENTITY_API_URL,
-    },
-    encryption: {
-      enabled: process.env.ENCRYPTION_ENABLED === 'true',
-      key: process.env.ENCRYPTION_KEY,
-      hashKey: process.env.HASH_KEY,
-    },
-  },
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379'),
-    password: process.env.REDIS_PASSWORD,
-  },
-  monitoring: {
-    enabled: process.env.IS_MONITORING_ENABLED === 'true',
-    licenseKey: process.env.NEW_RELIC_LICENSE_KEY,
-  },
-};
-```
+- Typed `AppConfig`: `Environment`, `server` (`Root`, `Host`, `Port`, `Origins`), `monitoring` (`enabled`, `licenseKey`).
 
 ### `src/infra/database/prisma.ts`
 
-```typescript
-import { PrismaClient } from '@prisma/client';
-
-export const prisma = new PrismaClient();
-```
+- `PrismaClient` from generated client path under `infra/database/generated`.
+- `@prisma/adapter-pg` + `DATABASE_URL` required at startup.
 
 ### `src/infra/server/App.ts`
 
-```typescript
-import cors from 'cors';
-import helmet from 'helmet';
+- `initAppSettings(config)` in `setup()`.
+- Middleware: `helmet` → `requestLogger` (`pino-http`) → JSON body → CORS (whitelist from `AppSettings.ServerOrigins`).
+- Controllers mounted at `AppSettings.ServerRoot`.
+- **404**: `loadNotFoundHandler` calls `next(HandlerErrorMiddleware.buildNotFoundError(...))`.
+- **Errors**: `app.use(HandlerErrorMiddleware.handler)` — handler is a **class field arrow** so Express does not lose `this`.
 
-import { Server, Application, BodyParser } from './core/Modules';
+### `src/infra/server/core/Server.ts` + `Modules.ts`
 
-import HandlerErrorMiddleware from '../middleware/handleError';
+- Thin re-exports of Express `Application`, `Router`, `json` body parser, types.
 
-import config from '../config';
+### `src/shared/types/express.d.ts` (Request augmentation)
 
-import logger from '@/shared/logger';
-import AppSettings from '@/shared/settings/AppSettings';
-import BaseController from '@/shared/base/BaseController';
+- `claims?`, `file?`, `log?` (`pino` `Logger`) on `Express.Request`.
 
-export default class App {
-  public app: Application;
+### `src/infra/middleware/logging/requestLogger.ts`
 
-  constructor(controllers: BaseController[]) {
-    this.setup();
-    this.app = Server();
-    this.app.set('trust proxy', true);
-    this.loadMiddleware();
-    this.loadControllers(controllers);
-    this.loadErrorHandler();
-  }
-
-  public loadMiddleware(): void {
-    this.app.use(helmet());
-    this.app.use(BodyParser({ limit: '50mb' }));
-    this.app.use(cors());
-  }
-
-  private loadControllers(controllers: BaseController[]): void {
-    controllers.forEach((controller) => {
-      this.app.use(AppSettings.ServerRoot, controller.router);
-    });
-  }
-
-  private loadErrorHandler(): void {
-    this.app.use(HandlerErrorMiddleware.handler);
-  }
-
-  private setup(): void {
-    AppSettings.init(config);
-  }
-
-  public listen(): void {
-    this.app.listen(config.server.Port, () => {
-      logger.info(`Server running on ${AppSettings.ServerHost}:${AppSettings.ServerPort}${AppSettings.ServerRoot}`);
-    });
-  }
-
-  private runServices(): void {
-    this.listen();
-  }
-
-  public start(): void {
-    this.runServices();
-  }
-}
-```
-
-### `src/infra/server/core/Server.ts`
-
-```typescript
-import Server from 'express';
-
-const Router = Server.Router;
-
-export { Router as RouterType, json as BodyParser } from 'express';
-
-export type { Response, NextFunction, Application } from 'express';
-
-export { Server, Router };
-```
-
-### `src/infra/server/core/Modules.ts`
-
-```typescript
-export { Server, BodyParser, Router, RouterType } from './Server';
-
-export type { Response, NextFunction, Application } from './Server';
-```
-
-### `src/infra/server/core/types/express/index.d.ts`
-
-```typescript
-import { TokenPayloadDto } from '@/shared/types/tokenPayload';
-
-declare module 'express-serve-static-core' {
-  interface Request {
-    claims: TokenPayloadDto;
-  }
-}
-```
+- `pino-http` with `genReqId` / `x-request-id`, custom serializers safe when `req.socket` is missing (`socket?.remoteAddress ?? req.ip`).
 
 ### `src/infra/middleware/handleError/index.ts`
 
-```typescript
-import { NextFunction, Request, Response } from 'express';
-
-import logger from '@/shared/logger';
-import { Result } from '@/shared/http/Result';
-import { ApplicationError } from '@/shared/error/ApplicationError';
-import { monitoring } from '@/shared/providers/MonitoringHandler/NewRelic';
-
-class HandlerErrorMiddleware {
-  public handler(err: ApplicationError, req: Request, res: Response, next: NextFunction): void {
-    const result = new Result();
-
-    monitoring.noticeError(err, {
-      url: req.url,
-      method: req.method,
-      statusCode: err.errorCode,
-      userAgent: req.get('User-Agent'),
-      ip: req.ip
-    });
-
-    if (err?.name === 'ApplicationError') {
-      result.setError(err.message, err.errorCode);
-      logger.warn('Application Error', {
-        error: err.message,
-        code: err.errorCode,
-        url: req.url,
-        method: req.method
-      });
-    } else {
-      logger.error('Unexpected Error', {
-        error: err.message,
-        stack: err.stack,
-        url: req.url,
-        method: req.method
-      });
-      result.setError('SOMETHING_WENT_WRONG', 500);
-    }
-
-    if (res.headersSent) {
-      return next(result);
-    }
-
-    res.status(+result.statusCode).send(result);
-  }
-}
-
-export default new HandlerErrorMiddleware();
-```
-
-### `src/infra/middleware/validation/index.ts`
-
-```typescript
-import { validate } from './zod';
-
-export { validate };
-```
+- Maps `Error` → RFC 7807-style **`ProblemDetails`** JSON, `Content-Type: application/problem+json`.
+- Uses `ApplicationError` / `ValidationError`; unknown errors → generic 500 body (no stack leak in response).
+- Logging: `req.log ?? logger.child({ requestId, context: 'error_middleware' })` so errors never assume `pino-http` ran.
+- `headersSent`: `next(err)` (not `next(result)`).
 
 ### `src/infra/middleware/validation/zod/index.ts`
 
-```typescript
-import { NextFunction } from 'express';
-import { AnyZodObject, ZodError, ZodType, ZodTypeDef } from 'zod';
-
-import { Result } from '@/shared/http/Result';
-
-export const validate =
-  <T extends ZodType<any, ZodTypeDef, any>>(schema: AnyZodObject) =>
-  async (req: any, res: any, next: NextFunction) => {
-    const result = new Result();
-    try {
-      const validationResult = await schema.parseAsync({
-        body: req.body,
-        query: req.query,
-        params: req.params,
-        file: req.file,
-      });
-
-      req.body = validationResult.body;
-      req.query = validationResult.query;
-      req.params = validationResult.params;
-      req.file = validationResult.file;
-
-      return next();
-    } catch (error: any) {
-      if (error instanceof ZodError) {
-        result.setError(
-          error.errors.map((e) => e.message),
-          400,
-        );
-        res.status(+result.statusCode).send(result);
-      } else {
-        next(error);
-      }
-    }
-  };
-```
-
-### `src/infra/middleware/authorization/index.ts`
-
-```typescript
-import { TokenClaims } from './Jwt';
-
-export { TokenClaims };
-```
+- `schema: ZodType`; on `ZodError` → `next(new ValidationError(messages))` (no inline `Result` response).
+- Request typed as `Request & { file?: unknown }` for optional multipart `file`.
 
 ### `src/infra/middleware/authorization/Jwt/index.ts`
 
-```typescript
-import { jwtDecode } from 'jwt-decode';
-import { NextFunction, Response, Request } from 'express';
+- **`jsonwebtoken.verify`** with `JWT_SECRET` (not decode-only).
+- `ApplicationError` uses **object constructor** (`title`, `detail`, `status`, `code`, `type`, …).
 
-import { ApplicationError } from '@/shared/error/ApplicationError';
-import ApplicationStatusCodes from '@/shared/http/ApplicationStatusCodes';
+### Health (module, not infra-only)
 
-export const TokenClaims = (req: Request, _: Response, next: NextFunction) => {
-  try {
-    const token = req.headers.authorization;
-
-    if (!token)
-      throw new ApplicationError(
-        'The resource you are trying to access is protected. No authorization token was provided.',
-        ApplicationStatusCodes.UNAUTHORIZED,
-      );
-
-    const tokenParts = token.split(' ');
-
-    if (tokenParts.length !== 2)
-      throw new ApplicationError(
-        'The authorization token is invalid. Please provide a valid token.',
-        ApplicationStatusCodes.UNAUTHORIZED,
-      );
-
-    if (tokenParts[0] !== 'Bearer')
-      throw new ApplicationError(
-        'The authorization token is invalid. Please provide a valid token.',
-        ApplicationStatusCodes.UNAUTHORIZED,
-      );
-
-    req.claims = jwtDecode(tokenParts[1]);
-
-    next();
-  } catch (error) {
-    throw new ApplicationError(
-      'The authorization token is invalid. Please provide a valid token.',
-      ApplicationStatusCodes.UNAUTHORIZED,
-    );
-  }
-};
-```
+- `src/modules/Health/Health.controller.ts`: `GET .../health/live`, `GET .../health/ready` (readiness flips on graceful shutdown via `shutdownState`).
 
 ---
 
@@ -432,41 +159,8 @@ export const TokenClaims = (req: Request, _: Response, next: NextFunction) => {
 
 ### `src/shared/base/BaseController.ts`
 
-```typescript
-import { Router, RouterType, Response } from '@/infra/server/core/Modules';
-import { IResult } from '@/shared/http/Result';
-import logger from '@/shared/logger';
-import { monitoring } from '@/shared/providers/MonitoringHandler/NewRelic';
-
-export default class BaseController {
-  public router: RouterType;
-
-  constructor(name: string) {
-    this.router = Router();
-    logger.info(`${name} Controller initialized`);
-
-    monitoring.recordCustomEvent('ControllerInitialized', {
-      controllerName: name
-    });
-  }
-
-  handleResult(res: Response, result: IResult<any>): void {
-    monitoring.recordMetric('Custom/API/Response', 1);
-    monitoring.recordMetric(`Custom/API/Response/${result.success ? 'Success' : 'Error'}`, 1);
-
-    if (!result.success) {
-      logger.warn('API Response Error', {
-        statusCode: result.statusCode,
-        error: result.message,
-        url: res.req?.url,
-        method: res.req?.method
-      });
-    }
-
-    res.status(+result.statusCode).json(result.toResultDto());
-  }
-}
-```
+- Builds `router`, logs controller init, emits monitoring custom event.
+- `handleResult` uses **`res.req?.log ?? root logger`** for structured warn on failed `Result`, then `res.status(...).json(result.toResultDto())` for **success JSON envelope** (not RFC7807; errors from `next(err)` use global handler).
 
 ### `src/shared/http/Result.ts`
 
@@ -539,28 +233,8 @@ export class Result<T> implements IResult<T> {
 
 ### `src/shared/http/TypedRequest.ts`
 
-```typescript
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { Request, RequestHandler } from 'express';
-import { z, ZodType, ZodTypeDef, ZodObject } from 'zod';
-
-export type RouteHandler = RequestHandler<any, any, any, any, Record<string, any>>;
-
-type ExtractSchema<T> = T extends ZodObject<infer U>
-  ? { [K in keyof U]: U[K] extends ZodType<any, ZodTypeDef, any> ? U[K] : never }
-  : never;
-
-type ExtractableKeys = 'params' | 'body' | 'query' | 'file';
-type FilterSchema<T> = Pick<T, ExtractableKeys & keyof T>;
-
-export type TypedRequest<TSchema extends ZodType<any, ZodTypeDef, any>> = Request<
-  z.infer<FilterSchema<ExtractSchema<TSchema>>['params']>,
-  any,
-  z.infer<FilterSchema<ExtractSchema<TSchema>>['body']>,
-  z.infer<FilterSchema<ExtractSchema<TSchema>>['query']>,
-  z.infer<FilterSchema<ExtractSchema<TSchema>>['file']>
->;
-```
+- Infers `params` / `body` / `query` from a Zod object schema (4th `Request` generic is **not** `file`; upload typing uses `Request & { file?: unknown }` in validate middleware).
+- Intersects `claims?: TokenPayloadDto` for handlers behind `TokenClaims`.
 
 ### `src/shared/http/ApplicationStatusCodes.ts`
 
@@ -578,155 +252,20 @@ export default {
 
 ### `src/shared/error/ApplicationError.ts`
 
-```typescript
-export class ApplicationError extends Error {
-  public constructor(message: string, errorCode: number | string, stack?: string) {
-    super(message);
-    this.name = 'ApplicationError';
-    this.errorCode = errorCode;
-    this.stack = stack;
-  }
-  errorCode: number | string;
-}
-```
+- Structured operational error: `title`, `detail`, `status`, `code`, optional `type`, `instance`, `cause`, `isOperational`.
+- `errorCode` mirrors HTTP `status` for compatibility with older call sites.
 
 ### `src/shared/error/RepositoryError.ts`
 
-```typescript
-export class RepositoryError extends Error {
-  public constructor(message: string) {
-    super(message);
-    this.name = 'RepositoryError';
-  }
-}
-```
+- Extends `ApplicationError` with repository-specific `code` / `type` (maps infra failures to HTTP 500 class errors).
 
-### `src/shared/logger/index.ts`
+### `src/shared/logger/*`
 
-```typescript
-import buildDevLogger from './logger.dev';
-import buildProdLogger from './logger.prod';
-import { Logger } from 'winston';
-
-import dotenv from 'dotenv';
-dotenv.config();
-
-let logger: Logger;
-let isDevEnvironment = process.env.ENVIRONMENT === 'development';
-
-if (isDevEnvironment) logger = buildDevLogger;
-else logger = buildProdLogger;
-
-export default logger;
-```
-
-### `src/shared/logger/logger.dev.ts`
-
-```typescript
-import { format, createLogger, transports } from 'winston';
-
-const { timestamp, combine, printf, errors, colorize } = format;
-
-const buildDevLogger = () => {
-  const logFormat = printf(({ level, message, timestamp, stack, ...meta }) => {
-    return `${timestamp} ${level}: ${stack || message} ${Object.keys(meta).length > 0 ? JSON.stringify(meta) : ''}`;
-  });
-
-  return createLogger({
-    format: combine(colorize(), timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), errors({ stack: true }), logFormat),
-    transports: [new transports.Console()],
-  });
-};
-
-export default buildDevLogger();
-```
-
-### `src/shared/logger/logger.prod.ts`
-
-```typescript
-import winston, { format, createLogger, transports } from 'winston';
-
-const { timestamp, combine, errors, json, printf } = format;
-
-const buildProdLogger = () => {
-  const isMonitoringEnabled = process.env.IS_MONITORING_ENABLED === 'true';
-
-  let logFormat;
-
-  const errorObjectFormat = printf(({ level, message, timestamp, stack, ...meta }) => {
-    return `${Object.keys(meta).length > 0 ? JSON.stringify(meta) : ''}`;
-  });
-
-  if (isMonitoringEnabled) {
-    const newrelicFormatter = require('@newrelic/winston-enricher')(winston)
-    logFormat = combine(
-      timestamp(),
-      errors({ stack: true }),
-      newrelicFormatter(),
-      json(),
-      errorObjectFormat,
-    );
-  } else {
-    logFormat = combine(
-      timestamp(),
-      errors({ stack: true }),
-      json(),
-      errorObjectFormat,
-    );
-  }
-
-  return createLogger({
-    format: logFormat,
-    transports: [
-      new transports.Console({
-        level: 'info',
-      })
-    ]
-  });
-};
-
-export default buildProdLogger();
-```
+- **`src/shared/logger/index.ts`**: single **Pino** root logger (`LOG_LEVEL`, JSON prod vs `pino-pretty` in development, redaction paths). Import `@/shared/logger` everywhere (no separate dev/prod Winston files).
 
 ### `src/shared/settings/AppSettings.ts`
 
-```typescript
-export default class AppSettings {
-  static Environment: string;
-
-  static ServerPort: string;
-  static ServerHost: string;
-  static ServerOrigins: string;
-  static ServerRoot: string;
-
-  static StorageConnectionString: string;
-  static StorageUrl: string;
-
-  static redis: {
-    host: string;
-    port: number;
-    password?: string;
-  };
-
-  static init(config: { [key: string]: any }): void {
-    this.Environment = config.Environment;
-
-    this.ServerPort = config.server.Port;
-    this.ServerHost = config.server.Host;
-    this.ServerRoot = config.server.Root;
-    this.ServerOrigins = config.server.Origins;
-
-    this.StorageConnectionString = config.params.storage.azure.ConnectionString;
-    this.StorageUrl = config.params.storage.azure.Url;
-
-    this.redis = {
-      host: config.redis?.host || 'localhost',
-      port: config.redis?.port || 6379,
-      password: config.redis?.password,
-    };
-  }
-}
-```
+- Mutable settings object + `initAppSettings(config: AppConfig)` (not a static class): `Environment`, `ServerPort`, `ServerHost`, `ServerOrigins`, `ServerRoot`.
 
 ### `src/shared/types/tokenPayload.ts`
 
@@ -847,13 +386,13 @@ export const getPaginationParams = (params: BasePaginationParams): BasePaginatio
 
 ### Monitoring coupling in current skeleton
 
-Current infra/shared base flow expects monitoring at three points:
+Monitoring hooks (`monitoring.noticeError`, `recordCustomEvent`, `recordMetric`) are used from:
 
 - `src/infra/middleware/handleError/index.ts`
 - `src/shared/base/BaseController.ts`
-- `src/shared/logger/logger.prod.ts`
+- `src/infra/server/shutdown/orchestrator.ts` (shutdown lifecycle event)
 
-If a new project does not need New Relic, keep same import contract but provide a no-op implementation.
+Optional **New Relic** agent is loaded from `src/index.ts` when enabled; logging is **Pino** (no Winston enricher pipeline).
 
 ---
 
@@ -888,7 +427,7 @@ If a new project does not need New Relic, keep same import contract but provide 
   - `@/modules/*`
   - `@/infra/*`
 - Runtime alias support:
-  - `module-alias/register` in `src/index.ts`
+  - `module-alias/register` when running compiled output from `build/` (see `src/index.ts`)
   - `_moduleAliases` in `package.json` for build output
 
 ### Core dependencies for this skeleton
@@ -896,20 +435,19 @@ If a new project does not need New Relic, keep same import contract but provide 
 - `express`, `cors`, `helmet`
 - `dotenv`
 - `zod`
-- `winston`
-- `jwt-decode`
+- `pino`, `pino-http` (+ `pino-pretty` dev)
+- `jsonwebtoken` (JWT verify in `TokenClaims`)
 - `module-alias`
-- `@prisma/client` + `prisma`
+- `@prisma/client`, `prisma`, `@prisma/adapter-pg`, `pg`
 
 ### Optional dependencies
 
-- `newrelic`
-- `@newrelic/winston-enricher`
+- `newrelic` (APM; loaded only when configured)
 
-Use these only if monitoring integration is required.
+Use optional deps only when the integration is required.
 
 ---
 
 ## Prisma Note
 
-`src/infra/database/prisma.ts` exports a single `PrismaClient` instance to be shared by repositories.
+`src/infra/database/prisma.ts` exports a single `PrismaClient` (with **Pg adapter** + `DATABASE_URL`) to be shared by repositories. Graceful shutdown calls `prisma.$disconnect()` from `ShutdownOrchestrator`.
