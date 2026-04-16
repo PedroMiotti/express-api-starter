@@ -6,3 +6,8 @@ export type SampleResponseDto = {
   decoratedValue: string;
   servicePayload: SampleServicePayload;
 };
+
+export type PrivateSampleResponseDto = SampleResponseDto & {
+  actorId: string;
+  includeMeta: boolean;
+};
