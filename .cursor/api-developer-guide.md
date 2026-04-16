@@ -109,3 +109,4 @@ Path aliases (`@/shared`, `@/infra`, `@/modules`) are in `tsconfig.json`; runtim
 ## Related doc
 
 - [.cursor/api-architecture.md](api-architecture.md) — infra + shared skeleton, embedded base code, provider/service patterns.
+- [.cursor/guides/error-handling-guide.md](error-handling-guide.md) - Error Handling and Loggin patterns.
