@@ -1,3 +1,6 @@
+Custom API Express template starter following a modified and simpler clean arch structure.
+
+
 ## Package manager
 
 This template uses `pnpm` only.
