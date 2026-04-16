@@ -20,6 +20,9 @@ export default class BaseController {
   }
 
   handleResult(res: Response, result: IResult<unknown>): void {
+    const requestLogger = res.req?.log ?? logger;
+    const requestId = res.req?.id;
+
     monitoring.recordMetric('Custom/API/Response', 1);
     monitoring.recordMetric(
       `Custom/API/Response/${result.success ? 'Success' : 'Error'}`,
@@ -27,11 +30,13 @@ export default class BaseController {
     );
 
     if (!result.success) {
-      logger.warn('API Response Error', {
+      requestLogger.warn({
+        message: 'API Response Error',
         statusCode: result.statusCode,
         error: result.message,
         url: res.req?.url,
         method: res.req?.method,
+        requestId,
       });
     }
 

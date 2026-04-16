@@ -2,8 +2,8 @@ import type { NextFunction, Request, Response } from 'express';
 import { TokenClaims } from '@/infra/middleware/authorization';
 import { validate } from '@/infra/middleware/validation';
 import BaseController from '@/shared/base/BaseController';
+import { ApplicationError } from '@/shared/error/ApplicationError';
 import type { TypedRequest } from '@/shared/http/TypedRequest';
-import type { TokenPayloadDto } from '@/shared/types/tokenPayload';
 import { GetPrivateSampleSchema } from './schemas/GetPrivateSample.schema';
 import { getPrivateSampleUseCase, getSampleUseCase } from './useCases';
 
@@ -43,9 +43,17 @@ class SampleController extends BaseController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const claims = req.claims as TokenPayloadDto;
+      if (!req.claims) {
+        throw new ApplicationError({
+          title: 'Unauthorized',
+          detail: 'Missing token claims.',
+          status: 401,
+          code: 'MISSING_TOKEN_CLAIMS',
+          type: '/problems/unauthorized',
+        });
+      }
       const result = await getPrivateSampleUseCase.execute({
-        actorId: claims.id,
+        actorId: req.claims.id,
         includeMeta: req.query.includeMeta ?? false,
       });
       this.handleResult(res, result);

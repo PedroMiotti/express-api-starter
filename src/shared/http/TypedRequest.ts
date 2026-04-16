@@ -1,5 +1,6 @@
 import type { Request, RequestHandler } from 'express';
 import type { ZodObject, ZodType, ZodTypeDef, z } from 'zod';
+import type { TokenPayloadDto } from '@/shared/types/tokenPayload';
 
 export type RouteHandler = RequestHandler<
   Record<string, string>,
@@ -27,6 +28,7 @@ export type TypedRequest<
   z.infer<FilterSchema<ExtractSchema<TSchema>>['params']>,
   unknown,
   z.infer<FilterSchema<ExtractSchema<TSchema>>['body']>,
-  z.infer<FilterSchema<ExtractSchema<TSchema>>['query']>,
-  z.infer<FilterSchema<ExtractSchema<TSchema>>['file']>
->;
+  z.infer<FilterSchema<ExtractSchema<TSchema>>['query']>
+> & {
+  claims?: TokenPayloadDto;
+};

@@ -1,14 +1,34 @@
-import dotenv from 'dotenv';
-import type { Logger } from 'winston';
-import buildDevLogger from './logger.dev';
-import buildProdLogger from './logger.prod';
+import pino from 'pino';
 
-dotenv.config();
+const environment = process.env.ENVIRONMENT ?? 'development';
+const isDevelopment = environment === 'development';
 
-let logger: Logger;
-const isDevEnvironment = process.env.ENVIRONMENT === 'development';
-
-if (isDevEnvironment) logger = buildDevLogger;
-else logger = buildProdLogger;
+const logger = pino({
+  level: process.env.LOG_LEVEL ?? (isDevelopment ? 'debug' : 'info'),
+  messageKey: 'message',
+  timestamp: pino.stdTimeFunctions.isoTime,
+  redact: {
+    paths: [
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'authorization',
+      'cookie',
+      'password',
+      'token',
+    ],
+    censor: '[REDACTED]',
+  },
+  transport: isDevelopment
+    ? {
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'SYS:standard',
+          ignore: 'pid,hostname',
+          singleLine: true,
+        },
+      }
+    : undefined,
+});
 
 export default logger;

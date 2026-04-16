@@ -1,12 +1,13 @@
 import type { NextFunction, Request, Response } from 'express';
-import { type AnyZodObject, ZodError } from 'zod';
+import { ZodError, type ZodType } from 'zod';
 
-import { Result } from '@/shared/http/Result';
+import { ValidationError } from '@/shared/error/ValidationError';
+
+type RequestWithOptionalFile = Request & { file?: unknown };
 
 export const validate =
-  (schema: AnyZodObject) =>
-  async (req: Request, res: Response, next: NextFunction) => {
-    const result = new Result();
+  (schema: ZodType) =>
+  async (req: RequestWithOptionalFile, _res: Response, next: NextFunction) => {
     try {
       const validationResult = await schema.parseAsync({
         body: req.body,
@@ -23,11 +24,7 @@ export const validate =
       return next();
     } catch (error: unknown) {
       if (error instanceof ZodError) {
-        result.setError(
-          error.errors.map((e) => e.message),
-          400,
-        );
-        res.status(+result.statusCode).send(result);
+        next(new ValidationError(error.errors.map((e) => e.message)));
       } else {
         next(error);
       }

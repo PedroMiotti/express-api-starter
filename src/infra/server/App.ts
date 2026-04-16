@@ -1,11 +1,19 @@
+import type { Server as HttpServer } from 'node:http';
+import cors from 'cors';
+import type { NextFunction, Request } from 'express';
+import helmet from 'helmet';
 import type BaseController from '@/shared/base/BaseController';
 import logger from '@/shared/logger';
 import AppSettings, { initAppSettings } from '@/shared/settings/AppSettings';
-import cors from 'cors';
-import helmet from 'helmet';
 import config from '../config';
 import HandlerErrorMiddleware from '../middleware/handleError';
-import { type Application, BodyParser, Server } from './core/Modules';
+import { requestLogger } from '../middleware/logging/requestLogger';
+import {
+  type Application,
+  BodyParser,
+  type Response,
+  Server,
+} from './core/Modules';
 
 export default class App {
   public app: Application;
@@ -16,18 +24,46 @@ export default class App {
     this.app.set('trust proxy', true);
     this.loadMiddleware();
     this.loadControllers(controllers);
+    this.loadNotFoundHandler();
     this.loadErrorHandler();
   }
 
   public loadMiddleware(): void {
+    const allowedOrigins = AppSettings.ServerOrigins.split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+
     this.app.use(helmet());
+    this.app.use(requestLogger);
     this.app.use(BodyParser({ limit: '50mb' }));
-    this.app.use(cors());
+    this.app.use(
+      cors({
+        origin: (origin, callback) => {
+          if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+            return;
+          }
+
+          callback(new Error('Not allowed by CORS'));
+        },
+      }),
+    );
   }
 
   private loadControllers(controllers: BaseController[]): void {
     controllers.forEach((controller) => {
       this.app.use(AppSettings.ServerRoot, controller.router);
+    });
+  }
+
+  private loadNotFoundHandler(): void {
+    this.app.use((req: Request, _res: Response, next: NextFunction) => {
+      next(
+        HandlerErrorMiddleware.buildNotFoundError(
+          `${req.method} ${req.originalUrl} not found`,
+          req.originalUrl,
+        ),
+      );
     });
   }
 
@@ -39,19 +75,24 @@ export default class App {
     initAppSettings(config);
   }
 
-  public listen(): void {
-    this.app.listen(config.server.Port, () => {
-      logger.info(
-        `Server running on ${AppSettings.ServerHost}:${AppSettings.ServerPort}${AppSettings.ServerRoot}`,
-      );
+  public listen(): HttpServer {
+    const server = this.app.listen(config.server.Port, () => {
+      logger.info({
+        message: 'Server started',
+        host: AppSettings.ServerHost,
+        port: AppSettings.ServerPort,
+        root: AppSettings.ServerRoot,
+      });
     });
+
+    return server;
   }
 
-  private runServices(): void {
-    this.listen();
+  private runServices(): HttpServer {
+    return this.listen();
   }
 
-  public start(): void {
-    this.runServices();
+  public start(): HttpServer {
+    return this.runServices();
   }
 }

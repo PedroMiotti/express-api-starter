@@ -4,7 +4,11 @@ import type {
 } from '../ISampleRepository';
 
 export class PrismaSampleRepository implements ISampleRepository {
-  async findById(_id: string): Promise<SampleRepositoryEntity | null> {
-    return null;
+  async findById(id: string): Promise<SampleRepositoryEntity | null> {
+    return {
+      id,
+      name: 'sample-prisma-repository',
+      createdAt: new Date(),
+    };
   }
 }
