@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "outDir": "./build",
+    "strictPropertyInitialization": false,
+    "types": ["node", "jest"],
+    "baseUrl": ".",
+    "paths": {
+      "@/shared/*": ["./src/shared/*"],
+      "@/modules/*": ["./src/modules/*"],
+      "@/infra/*": ["./src/infra/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.js", "**/*.d.ts"],
+  "exclude": ["build", "**/*.test.ts"]
+}

@@ -1,0 +1,15 @@
+node_modules
+package-lock.json
+yarn.lock
+pnpm-debug.log*
+.pnpm-store
+
+build
+
+.env
+
+.idea
+.vscode
+.DS_Store
+
+src/infra/database/generated/prisma
