@@ -1,4 +1,9 @@
-class ShutdownState {
+export interface IShutdownState {
+  markShuttingDown(): void;
+  isReady(): boolean;
+}
+
+class ShutdownState implements IShutdownState {
   private shuttingDown = false;
 
   public markShuttingDown(): void {

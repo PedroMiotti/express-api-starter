@@ -18,7 +18,7 @@ Final URL shape: `http(s)://{host}:{port}{AppSettings.ServerRoot}{route}` (e.g. 
 4. Open `useCases/index.ts` in that module to see how the use case is constructed (repository singleton, optional shared services).
 5. Repository interface is under `repository/I*Repository.ts`; Prisma code under `repository/prisma/*.repository.ts` using `prisma` from `@/infra/database/prisma`.
 
-**Infra-only routes:** `Health` module registers `GET /health/live` and `GET /health/ready` under the same `ServerRoot` (e.g. `/api/health/live`).
+**Infra-adjacent routes:** `Health` module registers `GET /health/live` and `GET /health/ready` under the same `ServerRoot` (e.g. `/api/health/live`). Liveness has no dependencies; readiness uses `GetReadinessUseCase` + `PrismaHealthRepository` and returns **200 / 503** with a small JSON body (`status`, `checks`, optional `version` / `commit`). Not the `Result` envelope.
 
 ## Controllers
 
@@ -48,7 +48,7 @@ Some modules expose `Public*` controllers with routes that omit `TokenClaims`. P
 ## Use cases
 
 - One folder per use case under `useCases/<Action>/index.ts`, exported class `XxxUseCase` with `execute(...)`.
-- Return `IResult<T>` via `Result<T>` from `@/shared/http/Result`: `setData`, `setMessage`, `setError`, `setStatusCode` as needed.
+- Return `IResult<T>` via `Result<T>` from `@/shared/http/Result`: `setData`, `setMessage`, `setError`, `setStatusCode` as needed. **Exception:** `GetReadinessUseCase` returns `{ httpStatus, body }` for health probes.
 - Dependencies come through the constructor; wire them in `useCases/index.ts` (manual DI, no framework).
 
 ## Repositories
@@ -60,6 +60,7 @@ Some modules expose `Public*` controllers with routes that omit `TokenClaims`. P
 ## DTOs and errors (two response shapes)
 
 - **Success path (normal JSON API envelope):** `Result` + `BaseController.handleResult` → `result.toResultDto()` JSON (not RFC7807).
+- **Readiness failures:** `GET .../health/ready` returns **503** with the same plain JSON shape as success (`not_ready`, per-check errors) — no `next(err)` for expected dependency failures.
 - **Failure path (`next(error)`):** global handler → **`application/problem+json`** with `type`, `title`, `status`, `detail`, `code`, `instance`, optional `errors`, `requestId`.
 - Throw **`ApplicationError`** with the **object constructor** (`title`, `detail`, `status`, `code`, optional `type`, …) from `@/shared/error/ApplicationError`.
 - **`RepositoryError`** extends `ApplicationError` for data-layer failures; map or wrap at boundaries as needed.
@@ -80,7 +81,7 @@ Do not call vendor SDKs or raw axios from controllers; keep that behind interfac
 
 ## Config and local run
 
-- Environment loading: [src/infra/config/index.ts](../../src/infra/config/index.ts).
+- Environment loading: [src/infra/config/index.ts](../../src/infra/config/index.ts) — includes `health`: optional `APP_VERSION`, `GIT_COMMIT`. Readiness DB ping timeout is fixed in code (`READINESS_DATABASE_CHECK_TIMEOUT_MS` in `GetReadiness`).
 - Typed settings after boot: [src/shared/settings/AppSettings.ts](../../src/shared/settings/AppSettings.ts) (`initAppSettings` runs from `App`).
 
 Useful scripts (this repo uses **pnpm**):
@@ -113,7 +114,7 @@ Path aliases (`@/shared`, `@/infra`, `@/modules`) are in `tsconfig.json`; runtim
 | Global errors / validation failures | `src/infra/middleware/handleError`, validation zod middleware |
 | Success JSON envelope | `src/shared/http/Result.ts`, `BaseController.handleResult` |
 | Request / correlation logging | `src/infra/middleware/logging/requestLogger.ts`, `src/shared/logger` |
-| Graceful shutdown / readiness | `src/index.ts`, `src/infra/server/shutdown/*`, `GET .../health/ready` |
+| Graceful shutdown / readiness | `src/index.ts`, `src/infra/server/shutdown/*`, `src/modules/Health/useCases/GetReadiness`, `GET .../health/ready` |
 
 ## Related doc
 

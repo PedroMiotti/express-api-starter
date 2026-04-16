@@ -16,6 +16,10 @@ export type AppConfig = {
     enabled: boolean;
     licenseKey: string | undefined;
   };
+  health: {
+    appVersion: string | undefined;
+    gitCommit: string | undefined;
+  };
 };
 
 const config: AppConfig = {
@@ -31,6 +35,10 @@ const config: AppConfig = {
   monitoring: {
     enabled: process.env.IS_MONITORING_ENABLED === 'true',
     licenseKey: process.env.NEW_RELIC_LICENSE_KEY,
+  },
+  health: {
+    appVersion: process.env.APP_VERSION?.trim() || undefined,
+    gitCommit: process.env.GIT_COMMIT?.trim() || undefined,
   },
 };
 

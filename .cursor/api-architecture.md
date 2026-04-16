@@ -86,7 +86,7 @@ Feature modules are not part of this skeleton doc by design.
 
 ## Config callout
 
-This template’s **checked-in** config is intentionally small: `Environment`, `server` (`Root`, `Host`, `Port`, `Origins`), and `monitoring` flags. See `src/infra/config/index.ts` and `src/shared/settings/AppSettings.ts`.
+This template’s **checked-in** config is intentionally small: `Environment`, `server` (`Root`, `Host`, `Port`, `Origins`), `monitoring`, and **`health`** (optional `appVersion` / `gitCommit` from env). See `src/infra/config/index.ts` and `src/shared/settings/AppSettings.ts`.
 
 When you grow the product, add keys there and extend `initAppSettings` — do not scatter `process.env` reads across modules.
 
@@ -105,7 +105,7 @@ Source of truth is always the repo; below is a **behavior summary** plus small e
 
 ### `src/infra/config/index.ts`
 
-- Typed `AppConfig`: `Environment`, `server` (`Root`, `Host`, `Port`, `Origins`), `monitoring` (`enabled`, `licenseKey`).
+- Typed `AppConfig`: `Environment`, `server` (`Root`, `Host`, `Port`, `Origins`), `monitoring` (`enabled`, `licenseKey`), `health` (`appVersion`, `gitCommit`).
 
 ### `src/infra/database/prisma.ts`
 
@@ -151,7 +151,7 @@ Source of truth is always the repo; below is a **behavior summary** plus small e
 
 ### Health (module, not infra-only)
 
-- `src/modules/Health/Health.controller.ts`: `GET .../health/live`, `GET .../health/ready` (readiness flips on graceful shutdown via `shutdownState`).
+- `src/modules/Health/Health.controller.ts`: `GET .../health/live` (process up; **no** DB); `GET .../health/ready` via `GetReadinessUseCase` — `shutdownState` + Prisma `SELECT 1` with per-request timeout `READINESS_DATABASE_CHECK_TIMEOUT_MS` (2000). Responses are **plain JSON** for probes (not `Result` / not RFC7807). Optional `APP_VERSION` / `GIT_COMMIT` on both routes when set.
 
 ---
 

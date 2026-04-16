@@ -6,6 +6,8 @@ type SettingsState = {
   ServerHost: string;
   ServerOrigins: string;
   ServerRoot: string;
+  HealthAppVersion: string | undefined;
+  HealthGitCommit: string | undefined;
 };
 
 const appSettings: SettingsState = {
@@ -14,6 +16,8 @@ const appSettings: SettingsState = {
   ServerHost: '',
   ServerOrigins: '',
   ServerRoot: '',
+  HealthAppVersion: undefined,
+  HealthGitCommit: undefined,
 };
 
 export const initAppSettings = (config: AppConfig): void => {
@@ -22,6 +26,8 @@ export const initAppSettings = (config: AppConfig): void => {
   appSettings.ServerHost = config.server.Host;
   appSettings.ServerRoot = config.server.Root;
   appSettings.ServerOrigins = config.server.Origins;
+  appSettings.HealthAppVersion = config.health.appVersion;
+  appSettings.HealthGitCommit = config.health.gitCommit;
 };
 
 export default appSettings;
