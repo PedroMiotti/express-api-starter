@@ -69,7 +69,7 @@ flowchart TB
 
 ## Runtime Flow
 
-- `src/index.ts` bootstraps dotenv, optional New Relic in production, `App` construction, HTTP `server` handle, and **graceful shutdown** (`ShutdownOrchestrator` on `SIGTERM` / `SIGINT`, plus fatal hooks).
+- `src/index.ts` bootstraps dotenv, `App` construction, HTTP `server` handle, and **graceful shutdown** (`ShutdownOrchestrator` on `SIGTERM` / `SIGINT`, plus fatal hooks).
 - `module-alias/register` loads from compiled output only when running under `build/` (see source).
 - `src/infra/server/App.ts` initializes settings, middleware stack, controllers, **404 → ApplicationError**, then global error handler.
 - Middleware order (high level): `helmet` → **`pino-http` request logger** (`requestLogger`) → JSON body → **CORS** (allowed origins from `AppSettings.ServerOrigins`).
@@ -99,7 +99,7 @@ Source of truth is always the repo; below is a **behavior summary** plus small e
 ### `src/index.ts` (bootstrap + shutdown)
 
 - `dotenv.config()` at top.
-- Optional `newrelic` when `IS_MONITORING_ENABLED` + production.
+- No vendor APM in bootstrap; use `src/shared/providers/monitoring` no-op (swap when you add observability).
 - `module-alias/register` only when `__filename` contains `build/` (compiled runtime).
 - `const server = app.start()` then `ShutdownOrchestrator` + process signal / fatal handlers.
 
@@ -386,13 +386,13 @@ export const getPaginationParams = (params: BasePaginationParams): BasePaginatio
 
 ### Monitoring coupling in current skeleton
 
-Monitoring hooks (`monitoring.noticeError`, `recordCustomEvent`, `recordMetric`) are used from:
+Monitoring hooks (`monitoring.noticeError`, `recordCustomEvent`, `recordMetric`) call **`src/shared/providers/monitoring`** (no-op today). Used from:
 
 - `src/infra/middleware/handleError/index.ts`
 - `src/shared/base/BaseController.ts`
-- `src/infra/server/shutdown/orchestrator.ts` (shutdown lifecycle event)
+- `src/infra/server/shutdown/orchestrator.ts`
 
-Optional **New Relic** agent is loaded from `src/index.ts` when enabled; logging is **Pino** (no Winston enricher pipeline).
+Logging is **Pino** only; wire your APM inside `monitoring` when ready.
 
 ---
 
@@ -442,9 +442,7 @@ Optional **New Relic** agent is loaded from `src/index.ts` when enabled; logging
 
 ### Optional dependencies
 
-- `newrelic` (APM; loaded only when configured)
-
-Use optional deps only when the integration is required.
+None required for this template baseline. Add your observability SDK when needed.
 
 ---
 

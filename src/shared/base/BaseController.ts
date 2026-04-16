@@ -5,7 +5,7 @@ import {
 } from '@/infra/server/core/Modules';
 import type { IResult } from '@/shared/http/Result';
 import logger from '@/shared/logger';
-import { monitoring } from '@/shared/providers/MonitoringHandler/NewRelic';
+import { monitoring } from '@/shared/providers/monitoring';
 
 export default class BaseController {
   public router: RouterType;

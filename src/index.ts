@@ -3,14 +3,6 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
-if (
-  process.env.IS_MONITORING_ENABLED === 'true' &&
-  process.env.ENVIRONMENT === 'production'
-) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
-  require('newrelic');
-}
-
 const isBuildRuntime = __filename.includes(`${path.sep}build${path.sep}`);
 
 if (isBuildRuntime) {

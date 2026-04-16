@@ -12,10 +12,6 @@ export type AppConfig = {
     Port: string | number;
     Origins: string;
   };
-  monitoring: {
-    enabled: boolean;
-    licenseKey: string | undefined;
-  };
   health: {
     appVersion: string | undefined;
     gitCommit: string | undefined;
@@ -31,10 +27,6 @@ const config: AppConfig = {
     Origins:
       process.env.ORIGINS ||
       'http://localhost:3000,http://localhost:3001,http://localhost:3002',
-  },
-  monitoring: {
-    enabled: process.env.IS_MONITORING_ENABLED === 'true',
-    licenseKey: process.env.NEW_RELIC_LICENSE_KEY,
   },
   health: {
     appVersion: process.env.APP_VERSION?.trim() || undefined,

@@ -4,7 +4,7 @@ import { ApplicationError } from '@/shared/error/ApplicationError';
 import { ValidationError } from '@/shared/error/ValidationError';
 import type { ProblemDetails } from '@/shared/http/ProblemDetails';
 import logger from '@/shared/logger';
-import { monitoring } from '@/shared/providers/MonitoringHandler/NewRelic';
+import { monitoring } from '@/shared/providers/monitoring';
 
 class HandlerErrorMiddleware {
   private readonly defaultUnexpectedError = 'Something went wrong.';

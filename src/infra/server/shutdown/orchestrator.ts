@@ -1,7 +1,7 @@
 import type { Server } from 'node:http';
 import { prisma } from '@/infra/database/prisma';
 import logger from '@/shared/logger';
-import { monitoring } from '@/shared/providers/MonitoringHandler/NewRelic';
+import { monitoring } from '@/shared/providers/monitoring';
 import { shutdownState } from './state';
 
 type ShutdownReason =
